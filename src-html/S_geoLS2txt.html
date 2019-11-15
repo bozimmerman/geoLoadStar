@@ -1,0 +1,378 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;*********************************
+;* LoadStar Presenter! - rev. 2 (1.8)
+;* Text and misc data
+;* By Bo Zimmerman
+;* Completed February   , 1997
+;* Revised January, 1998, 2009
+;*********************************
+
+.if	Pass1
+	.noeqin
+	.noglbl
+	.include	GEOSequates
+	.eqin
+	.glbl
+.endif
+
+
+;*********************************
+;* CopingBox - progress filename box for
+;*  copyit. NoCope - erases CopingBox
+;* ErrorBox - data for aborted CopyIt
+;*********************************
+
+CopingBox:
+	ldb	$2f,#$80
+	jsr	$c1a8	; i_GraphicsString
+	.byte	5,1	; newpattern
+	.byte	1,$60,$00,$28	; movepento;5e,25
+	.byte	3,$f7,$00,$9f	; rectangleto;f7,9f
+	.byte	5,0
+	.byte	1,$58,$00,$20
+	.byte	3,$ef,$00,$97	; $ef,$00,$97
+	.byte	5,1
+	.byte	1,$58,$00,$20
+	.byte	7,$ef,$00,$97	; frame_recto
+	.byte	6,$83,$00,$40
+	.byte	$18,"Copying...",27,0
+	ldw	$02,#Filename	;r0
+	ldw	$18,#$07f	;r11
+	ldb	$05,#$60	;r1H
+	jsr	$c148	; putstring
+	;ldb	$2f,#($80 | $40)	; upsets LClean
+	rts
+
+NoCope:
+	ldb	$06,$20	;top
+	ldb	$07,$9f	;bottom
+	ldw	$08,$0058	;left
+	ldw	$0a,$00f7	;right
+	jmp	$c12d	; recover rectangle
+
+ErrorBox:
+	.byte	$00 | 01	;user position
+	.byte	$20	;top
+	.byte	$97	;bottom
+	.word	$058	;left
+	.word	$0ef	;right
+	.byte	11
+	.byte	$20,$20
+	.word	CBtxt1
+	.byte	12
+	.byte	$20,$37
+	.byte	$0e	;R6
+	.byte	$02,$05,$59	;cancel icon
+	.byte	0
+CBtxt1:	.byte	$18,"Operation aborted:",27,0
+
+;*********************************
+;* DoR6Error - show a copyit error message
+;*  from the .x register.
+;* 
+;*********************************
+
+DoR6Error:
+	ldw	$0e,#ERtxt0
+	cpx	#$ff
+	beq	17$
+	ldw	$0e,#ERtxt1
+	cpx	#3
+	beq	17$
+	ldw	$0e,#ERtxt2
+	cpx	#5
+	beq	17$
+	ldw	$0e,#ERtxt3
+	cpx	#11
+	beq	17$
+	ldw	$0e,#ERtxt4
+	cpx	#13
+	beq	17$
+	ldw	$0e,#ERtxt5
+	cpx	#31
+	beq	17$
+	ldw	$0e,#ERtxt6
+	cpx	#32
+	beq	17$
+	ldw	$0e,#ERtxt7
+	cpx	#39
+	beq	17$
+	ldw	$0e,#ERtxt8
+17$:	ldw	R0,#ErrorBox
+	jmp	$c256	; dodlgbox	
+
+;*********************************
+;* CopyBox - this is the pickdrive box which
+;*  include A,B,C, icons, Cancel, and disk
+;*  names.
+;*********************************
+
+CopyBox:
+	.byte	$00 | 01	;user position
+	.byte	$20	;top
+	.byte	$97	;bottom
+	.word	$058	;left
+	.word	$0ef	;right
+	.byte	18	;user icon
+	.byte	$01,$15
+	.word	Acon
+	.byte	11
+	.byte	$3a,$20
+	.word	AName
+	.byte	18	;user icon
+	.byte	$01,$2c
+	.word	Bcon
+	.byte	11
+	.byte	$3a,$37
+	.word	BName
+	.byte	18	;user icon
+	.byte	$01,$43
+	.word	Ccon
+	.byte	11
+	.byte	$3a,$4d
+	.word	CName
+	.byte	$02,$05,$59	;Cancel icon
+	.byte	11	;add text
+	.byte	$0b,$0e
+	.word	CPtxt0
+	.byte	0	;end of defintion
+
+
+;*********************************
+;* Acon, Bcon, Ccon - icon and image data
+;*  for PickDrive (copyit) A,B,C icons.
+;* 
+;*********************************
+
+Acon:
+	.word	Amage	;graphic location
+	.word	0	;leave this at 0
+	.byte	AmgX	;width, set below
+	.byte	AmgY	;height, set below
+	.word	RtnA	;location of action routine
+Amage:
+<img src="00069.png" />	AmgX	=picW
+	AmgY	=picH
+
+
+Bcon:
+	.word	Bmage	;graphic location
+	.word	0	;leave this at 0
+	.byte	BmgX	;width, set below
+	.byte	BmgY	;height, set below
+	.word	RtnB	;location of action routine
+Bmage:
+<img src="00068.png" />	BmgX	=picW
+	BmgY	=picH
+
+
+Ccon:
+	.word	Cmage	;graphic location
+	.word	0	;leave this at 0
+	.byte	CmgX	;width, set below
+	.byte	CmgY	;height, set below
+	.word	RtnC	;location of action routine
+Cmage:
+<img src="00067.png" />	CmgX	=picW
+	CmgY	=picH
+
+
+;*********************************
+;* Dcon, Pcon, Ocon - icon and image data
+;*  for Done, Print, Continue box
+;*********************************
+
+Dcon:	jsr	$c1ab	;i_BitmapUp
+	.word	Dmage	;graphic location
+	.byte	17,90	;column,margin
+	.byte	DmgX	;width, set below
+	.byte	DmgY	;height, set below
+	rts
+Dmage:
+<img src="00064.png" />	DmgX	=picW
+	DmgY	=picH
+
+
+Pcon:
+	jsr	$c1ab	;i_BitmapUp
+	.word	Pmage	;graphic location
+	.byte	17,67	;column,margin
+	.byte	PmgX	;width, set below
+	.byte	PmgY	;height, set below
+	rts
+Pmage:
+<img src="00065.png" />	PmgX	=picW
+	PmgY	=picH
+
+
+Ocon:
+	jsr	$c1ab	;i_BitmapUp
+	.word	Omage	;graphic location
+	.byte	17,113	;column,margin
+	.byte	OmgX	;width, set below
+	.byte	OmgY	;height, set below
+	rts
+Omage:
+<img src="00066.png" />	OmgX	=picW
+	OmgY	=picH
+
+
+;*********************************
+;* ClearScreen - data for a clear screen
+;* OpeninBox - disk selection box data
+;* 
+;*********************************
+
+ClearScreen:	; clear the screen data
+	.byte	NEWPATTERN,2
+	.byte	MOVEPENTO,0,0,0
+	.byte	RECTANGLETO
+	.word	319
+	.byte	199
+	.byte	0
+
+OpeninBox:
+	.byte	$80 | $01
+	.byte	15	;gfxstring
+	.word	OpeninGfx
+	.byte	11	;add text
+	.byte	$07,$0c
+	.word	OBtxt0
+	.byte	11
+	.byte	$22,$0c	; add more text
+	.word	LSDrive+1
+	.byte	11,$10,23+(0*11)	;add filenames
+	.word	PData+(0*17)
+	.byte	11,$10,23+(1*11)	;add filenames
+	.word	PData+(1*17)
+	.byte	11,$10,23+(2*11)	;add filenames
+	.word	PData+(2*17)
+	.byte	11,$10,23+(3*11)	;add filenames
+	.word	PData+(3*17)
+	.byte	11,$10,23+(4*11)	;add filenames
+	.word	PData+(4*17)
+	.byte	11,$10,23+(5*11)	;add filenames
+	.word	PData+(5*17)
+	.byte	11,$10,23+(6*11)	;add filenames
+	.word	PData+(6*17)
+	.byte	$05,$11,$07	;OPEN icon
+	.byte	$06,$11,$1c	;DISK icon
+	.byte	$02,$11,$46	;Cancel icon
+Opnin2:	.byte	18	;user icon
+	.byte	$11,$31
+	.word	drvcon
+	.byte	0	;end of defintion
+OpeninGfx:
+	.byte	NEWPATTERN,1
+	.byte	MOVEPENTO,70,0,35
+	.byte	FRAME_RECTO,194,0,124
+	.byte	MOVEPENTO,70,0,47
+	.byte	LINETO,194,0,47
+	.byte	0
+
+
+
+;*********************************
+;* Trans1, Trans2 - packed text translation
+;*  tables.
+;* 
+;*********************************
+Trans1:		; ** Commodore -> GEOS
+	.byte	$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff	; 0-9
+	.byte	$ff,$ff,$ff,$0d,$ff,$ff,$ff,$ff,$ff,$ff	; 10-19
+	.byte	$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff	; 20-29
+	.byte	$ff,$ff,0,0,0,0,0,0,0,0	; 30-39
+	.byte	0,0,0,0,0,0,0,0,0,0	; 40-49	
+	.byte	0,0,0,0,0,0,0,0,0,0	; 50-59	
+	.byte	0,0,0,0,0,0,0,0,0,0	; 60-69	
+	.byte	0,0,0,0,0,0,0,0,0,0	; 70-79	
+	.byte	0,0,0,0,0,0,0,0,0,0	; 80-89	
+	.byte	0,0,0,0,0,0,"    "	; 90-99	
+	.byte	"          "	; 100-109
+	.byte	"     aaaaa"	; 110-119
+	.byte	"aaaabbcccc"	; 120-129
+	.byte	"cdddeeeeee"	; 130-139
+	.byte	"eeeffgghhh"	; 140-149
+	.byte	"hhiiiiiiii"	; 150-159
+	.byte	"ikkkllllll"	; 160-169
+	.byte	"lmmmmnnnnn"	; 170-179
+	.byte	"ooooooooop"	; 180-189
+	.byte	"pr",0,0,0,0,0,0,0,0	; 190-199
+	.byte	0,0,0,0,0,0,0,0,0,0	; 200-209
+	.byte	0,0,0,0,0,0,0,0,0,0	; 210-219
+	.byte	"rrrrssssss"	; 220-229
+	.byte	"ttttttttuu"	; 230-239
+	.byte	"uvwwwyy",$ff,$ff,$ff	; 240-249
+	.byte	$ff,$ff,$ff,$ff,$ff,$ff	; 250-255
+
+Trans2:		; ** Commodore -> GEOS
+	.byte	0,0,0,0,0,0,0,0,0,0	; 0-9
+	.byte	0,0,0,13,0,0,0,0,0,0	; 10-19
+	.byte	0,0,0,0,0,0,0,0,0,0	; 20-29
+	.byte	0,0," !",34,"#$%&'"	; 30-39
+	.byte	"()*+,-./01"	; 40-49	
+	.byte	"23456789:;"	; 50-59	
+	.byte	"<=>?@abcde"	; 60-69	
+	.byte	"fghijklmno"	; 70-79	
+	.byte	"pqrstuvwxy"	; 80-89	
+	.byte	"z",$18,"`",27,"^_abcd"	; 90-99	
+	.byte	"efghilmnop"	; 100-109
+	.byte	"rstwy cdil"	; 110-119
+	.byte	"nrsteoaehk"	; 120-129
+	.byte	"o ei adeln"	; 130-139
+	.byte	"rst o e ae"	; 140-149
+	.byte	"iocgklmnrs"	; 150-159
+	.byte	"t ei aeilo"	; 160-169
+	.byte	"y aeo degt"	; 170-179
+	.byte	" fnorstuwe"	; 180-189
+	.byte	"o -ABCDEFG"	; 190-199
+	.byte	"HIJKLMNOPQ"	; 200-209
+	.byte	"RSTUVWXYZ "	; 210-219
+	.byte	"eios ehist"	; 220-229
+	.byte	" aehiorslr"	; 230-239
+	.byte	"teaei o",0,0,0	; 240-249
+	.byte	0,0,0,0,0,0	; 250-255
+TablesEnd:	.byte	0
+
+;*********************************
+;* All the happy text strings!
+;*********************************
+
+OBtxt0:	.byte	$18,"Disk:",27,0
+CPtxt0:	.byte	$18,"Copy to which disk:",27,0
+WRtxt0:	.byte	$18,"Please insert LoadStar disk 1",27,0
+WRtxt1:	.byte	$18,"into drive A and click OK.",27,0
+GStxt0:	.byte	"program info",0
+ABtxt0:	.byte	$1a,"LoadStar Presenter",27,0
+ABtxt1:	.byte	$18,"Version 1.7",27,0
+ABtxt2:	.byte	$18,"Written by: Bo Zimmerman",27,0
+ABtxt3:	.byte	$18,"Completed/Revised 1996-1999",27,0
+DMtxt0:	.byte	$18,"Please insert disk:",27,0
+DMtxt1:	.byte	$18,"Into drive: ",27,0
+ROtxt0:	.byte	$18,"Read it!",27,0
+ROtxt1:	.byte	$18,"Run it!",27,0
+ROtxt2:	.byte	$18,"Copy it!",27,0
+ERtxt0:	.byte	$18,"ERROR: File exists!",27,0
+ERtxt1:	.byte	$18,"ERROR: Disk full!",27,0
+ERtxt2:	.byte	$18,"ERROR: File not found!",27,0
+ERtxt3:	.byte	$18,"ERROR: File too long!",27,0
+ERtxt4:	.byte	$18,"ERROR: Device not present!",27,0
+ERtxt5:	.byte	$18,"ERROR: Write protect on!",27,0
+ERtxt6:	.byte	$18,"ERROR: Read error!",27,0
+ERtxt7:	.byte	$18,"ERROR: Write error!",27,0
+ERtxt8:	.byte	$18,"ERROR: Disk error!",27,0
+CDtxt0:	.byte	$18,"Insert new disk into drive.",27,0
+Features:	.byte	"FEATURES",0
+FilesOnSide:	.byte	"FILES ON SIDE 1",0
+NLtxt0:	.byte	$18,"LoadStar files not found!",27,0
+MMtxt0:	.byte	"geos",0
+MMtxt1:	.byte	"issue",0
+NOtxt0:	.byte	"Not Present.",0
+IStxt0:	.byte	"next",0
+IStxt1:	.byte	"quit",0
+RUtxt0:	.byte	"POKE186,9::CLR:RUN:",0
+	.block	40-20
+
+
+
+</pre></body></html>

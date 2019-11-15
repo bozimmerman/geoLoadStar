@@ -1,0 +1,1358 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;*********************************
+;* LoadStar Presenter! - rev. 2 (1.8)
+;* By Bo Zimmerman
+;* Completed January   , 1997
+;* Revised January, 1998, 2009
+;*********************************
+
+.if	Pass1
+	.noeqin
+	.noglbl
+	.include	GEOSequates
+	.eqin
+	.glbl
+.endif
+	; Table of Contents (abbreviated)
+	; Variables	- page 48
+	; Code	- page 2 - 30
+	; LOADSTAR graphic - 31
+	; (some) Table data, - S/geoLStxt
+	; (all but one of the) icons - S/geoLStxt
+	; packed data translation - S/geoLStxt
+
+	.psect
+
+;*********************************
+;* ProgStart - inits the system and drops to the kernel
+;* SaveRRegs - save the system registers
+;* RstrRRegs - restore the system registers
+;*********************************
+
+ProgStart:	ldb	dispBufferOn,#(ST_WR_FORE|ST_WR_BACK)
+	jsr	InitDA	; read in DA files
+	jsr	LdPrntDrv
+	jsr	OpenUp	; init the main screen
+	rts 		; start program
+
+SaveRRegs:
+	mvw	R0,RegSave
+	mvw	R1,RegSave+2
+	ldw	R0,#R1H
+	ldw	R1,#RegSave+3
+	ldy	#21
+10$:	lda	(R0),y
+	sta	(R1),y
+	ylp	10$
+	jmp	RstrRRegs
+
+RstrRRegs:
+	ldw	R0,#RegSave+3
+	ldw	R1,#R1H
+	ldy	#21
+10$:	lda	(R0),y
+	sta	(R1),y
+	ylp	10$
+	mvw	RegSave,R0
+	mvw	RegSave+2,R1
+	rts
+
+;*********************************
+;* OpenUp - gets the loadstar disk from
+;*   user, handles opening boxes, and
+;*   drive/disk selection for loadstar
+;*********************************
+
+OpenUp:	cbi	numDrives,#2	; no Drive icon for 1 drive
+	bge	10$
+	ldb	Opnin2,#0
+10$:	ldb	ClearScreen+1,#2	; clear the screen
+	ldw	R0,#ClearScreen
+	jsr	GraphicsString
+	ldw	ClickF,#1	; initialize click flag
+	jsr	MkLilBox	; make little text box
+ReOpen:	mvb	curDrive,LSDrive
+	ldb	A2L,#18
+	ldw	A1,#LSDrive+1	; find loadstar disk name
+	jsr	MoveDrNm
+	ldw	R0,#200
+	ldw	R1,#PData	; clear fname area
+	jsr	ClearRam
+	ldw	R10,#0
+	ldw	R6,#PData
+	ldb	R7L,#NOT_GEOS	; get disk files
+	ldb	R7H,#10
+	jsr	FindFTypes
+	ldw	A0,#PData	; make fnames printable
+10$:	ldy	#0
+	lda	(A0),y
+	bne	11$
+	lda	#32	; put space in a blank fname
+	sta	(A0),y
+	iny
+	lda	#0	; put space in a blank fname
+	sta	(A0),y
+11$:	avw	#17,A0
+	cwi	A0,#PData+(17*9)	; now were done
+	bne	10$
+	ldw	R0,#OpeninBox
+	jsr	DoDlgBox	; do dialog box
+	cbi	sysDBData,#2
+	bne	12$
+	jsr	ClrLilBox	; quit clicked
+	jmp	DoQuit
+12$:	cmp	#5
+	bne	13$
+	jsr	ClrLilBox	; open click = chaaarge!
+	jmp	GitGoin
+13$:	cmp	#6
+	bne	14$
+	jsr	DoDisk	; disk click = switch disks
+	jmp	ReOpen
+14$:	jsr	DoDrive	; drive click = move over
+	jmp	ReOpen
+
+;*********************************
+;* drvcon - drive icon data
+;*
+;* DoDrv - change drives
+;*********************************
+
+drvcon:
+	.word	drvmage	;graphic location
+	.word	0	;leave this at 0
+	.byte	drvW	;width, set below
+	.byte	drvH	;height, set below
+	.word	DoDrv	;location of action routine
+drvmage:
+<img src="00264.png" />	drvW	=picW
+	drvH	=picH
+DoDrv:	ldb	sysDBData,#0	; send drive click command
+	jmp	RstrFrmDialogue
+
+;*********************************
+;* DoDisk - change disks .. DiskBox - data
+;* DoDrive - handle drive toggles
+;* MkLilBox - make bottom intro box
+;* ClrLilBox - erase the bottom intro box
+;*********************************
+
+DoDisk:	ldw	R0,#DiskBox	; ask for new disk
+	jsr	DoDlgBox
+	jsr	OpenDisk
+	jmp	DFerrors	; handle any errors
+
+DiskBox:	.byte	$80 | $01
+	.byte	11,$0e,$12
+	.word	CDtxt0
+	.byte	$01,$0f,$42
+	.byte	0
+
+DoDrive:	ldx	#$08
+	lda	numDrives
+	add	#7
+	cmp	curDrive
+	ble	20$
+	ldx	curDrive
+	inx
+20$:	txa
+	pha
+	jsr	SetDevice
+	pla
+	cmp	curDrive
+	beq	11$
+	sta	curDrive
+	bra	DoDrive
+11$:	jsr	OpenDisk
+	cpx	#0
+	bne	DoDrive
+	rts
+
+MkLilBox:	jsr	i_GraphicsString
+	.byte	NEWPATTERN,0
+	.byte	MOVEPENTO,90,0,145
+	.byte	FRAME_RECTO,235,0,185
+	.byte	MOVEPENTO,91,0,146
+	.byte	RECTANGLETO,234,0,184
+	.byte	ESC_PUTSTRING,102,0,167
+	.byte	$18,"- LoadStar Presenter -",27,0
+	rts
+
+ClrLilBox:	jsr	i_GraphicsString
+	.byte	NEWPATTERN,2
+	.byte	MOVEPENTO,90,0,145
+	.byte	RECTANGLETO,235,0,185
+	.byte	0
+	rts
+
+;*********************************
+;* InitDA - reads in the DAs from the boot
+;* drive and builds the GEOS submenu therefrom
+;* MoveDrNm - copies current drives name
+;*********************************
+
+InitDA:
+	mvb	curDrive,DADrive
+	ldb	A2L,#18
+	ldw	A1,#DADrive+1	; copy DA drive info
+	jsr	MoveDrNm
+	ldw	R6,#DAText
+	ldb	R7L,#DESK_ACC
+	ldb	R7H,#7
+	ldw	R10,#10
+	jsr	FindFTypes	; look for DAs, file them
+	lda	#7
+	sub	R7H
+	beq	10$
+	clc
+	adc	#1
+	pha
+	ora	#VERTICAL	; add to geos submenu
+	sta	GMenu+6
+	pla
+	sta	R0L
+	asl	a
+	asl	a
+	asl	a
+	asl	a
+	sub	R0L
+	sub	R0L
+	clc
+	adc	#16
+	sta	GMenu+1
+10$:	rts
+
+MoveDrNm:
+	ldx	#A0	;discover the current drives
+	jsr	GetPtrCurDkNm	;name. Should this be a routine?
+	ldy	#$00
+17$:	lda	(A0),y	;copy Disk Name to Buffer...
+	cmp	#$a0	;so that a 0 can be added
+	beq	18$	;and thus be readable by
+	sta	(A1),y	;the dialog box routines
+	iny
+	cmp	#$a0
+	beq	18$
+	cpy	A2L
+	bne	17$
+18$:	lda	#0	;now add EOL to end
+	sta	(A1),y
+	rts
+
+
+;*********************************
+;* LdPrntDrv - load print driver and set
+;* or clear the print flag
+;* SwapDrv - swap in/out printer driver
+;*********************************
+
+LdPrntDrv:
+	ldw	R0L,#1
+	ldw	R6,#$8465
+	ldw	R7,#PrtDrvBuf
+	jsr	GetFile	; read print driver
+	cpx	#0
+	beq	10$
+	ldb	PrtDrv,#0	; print driver not found
+	rts
+10$:	ldb	PrtDrv,#1	; print driver loaded
+	rts
+
+SwapDrv:	ldw	R0,#PrtDrvBuf
+	ldw	R1,#$7900	; re-load printer driver
+10$:	ldy	#0
+	lda	(R0),y
+	tax
+	lda	(R1),y
+	sta	(R0),y
+	txa
+	sta	(R1),y
+	avw	#1,R0
+	avw	#1,R1
+	cwi	R1,#$7f3f
+	bne	10$
+	rts
+
+;*********************************
+;* GMenu - geos menu data
+;*
+;*
+;*********************************
+
+GMenu:
+	;The sub menu under the "geos" thang
+	.byte	15	;top scanline
+	.byte	15+1+(1*14)	;bottom scanline,15+1+(#items*14)
+	.word	0	;left x position
+	.word	79	;right x position
+	.byte	VERTICAL|1	;# of items (if no DA's)
+	.word	GStxt0	;text for this item
+	.byte	MENU_ACTION
+	.word	R_DoAbout
+	.word	DAText
+	.byte	MENU_ACTION
+	.word	R_RunDA
+	.word	DAText+$11
+	.byte	MENU_ACTION
+	.word	R_RunDA
+	.word	DAText+$22
+	.byte	MENU_ACTION
+	.word	R_RunDA
+	.word	DAText+$33
+	.byte	MENU_ACTION
+	.word	R_RunDA
+	.word	DAText+$44
+	.byte	MENU_ACTION
+	.word	R_RunDA
+	.word	DAText+$55
+	.byte	MENU_ACTION
+	.word	R_RunDA
+	.word	DAText+$66
+	.byte	MENU_ACTION
+	.word	R_RunDA
+	.word	DAText+$77
+	.byte	MENU_ACTION
+	.word	R_RunDA
+
+;*********************************
+;* R_DoAbout - show the prog info box
+;* Ab_Box - prog info box data
+;*
+;*********************************
+
+R_DoAbout:
+	jsr	GotoFirstMenu	;roll up menu
+	ldw	R0,#Ab_Box
+	jsr	DoDlgBox
+	rts
+
+Ab_Box:
+	.byte	$80 | $01
+	.byte	11	;add text
+	.byte	$2e,$14
+	.word	ABtxt0
+	.byte	11	;add text
+	.byte	$3f,$28
+	.word	ABtxt1
+	.byte	11	;add text
+	.byte	$16,$3f
+	.word	ABtxt2
+	.byte	11	;add text
+	.byte	$12,$52
+	.word	ABtxt3
+	.byte	14	;Quit on Click
+	.byte	0	;end of defintion
+
+R_DoNothing:
+	jsr	GotoFirstMenu
+	;Nothing Done!
+	rts
+
+R_RunDA:
+	pha
+	jsr	GotoFirstMenu
+	pla
+	jsr	RunDA
+	rts
+
+
+;*********************************
+;* RunDA - executes and cleans up after
+;*   a desk accessory run.
+;*
+;*********************************
+
+RunDA:
+	sta	R6L	;calculate filename of DA
+	asl	a
+	asl	a
+	asl	a
+	asl	a
+	add	R6L
+	clc
+	adc	#[(DAText-17)
+	sta	R6L
+	lda	#0
+	adc	#](DAText-17)	; get filename
+	sta	R6H
+	phw	R6
+	ldw	A3,#DADrive
+	jsr	DoDrvM	; correct drive?
+	beq	01$
+	plw	R6
+	rts
+01$:	plw	R6
+	ldx	$0001
+	ldb	$0001,#$35
+	phb	$d017
+	ldb	$d017,#0
+	stx	$0001
+	ldb	R0L,#0	;standard loading option
+	lda	#%0000000	;tell DA what to save
+	sta	R10L
+	jsr	GetFile
+	stx	R6L
+	ldx	$0001
+	ldb 	$0001,#$35
+	plb	$d017
+	stx	$0001
+	jsr	ColorUp	; restore screen color
+	ldb	R2L,#15
+	ldb	R2H,#199
+	ldw	R3,#0
+	ldw	R4,#319
+	jsr	RecoverRectangle
+	ldw	A3,#LSDrive	; go back to LS drive
+	jsr	DoDrvM
+
+	rts
+
+;*********************************
+;* DoDrvM - ensure current disk is right disk
+;* RightDisk - data for right disk box prompter
+;* CanBox, OkBox - data for cancel, ok boxes
+;*********************************
+
+DoDrvM:		;make sure correct disk for Drive A3L is in.
+	ldy 	#$00	;met current drive proper
+	lda	(A3),y
+	jsr	SetDevice
+	mvw	A3,A4	;copy filename ptr to A4
+	avw	#$01,A4	;make sure filename is pointed
+	ldw	A1,#DiskNm	;DiskNm is dest for disk name
+	ldb	A2L,#18	;18 chars max
+	jsr	MoveDrNm
+	ldx	#A4	;now compare A4 to A1
+	ldy	#A1
+	jsr	CmpString
+	beq	39$
+	ldw	R0,#RightDisk	;not equal, so send box
+	ldw	A2,#Temp
+	jsr	DriveLetter	;find drive letter
+	jsr	DoDlgBox
+	jsr	OpenDisk	;re-open the drive
+	lda	sysDBData
+	cmp	#$02	;if cancelled then cancel!
+	bne	DoDrvM
+	lda	#$ff	;send error
+	rts
+39$:	lda	#$00	;successfull and done
+	rts
+
+RightDisk:	.byte	$80 | $01
+	.byte	$01,$04,$46	;OK icon
+	.byte	$02,$0e,$46	;Cancel icon
+	.byte	11	;add text
+	.byte	$1b,$11
+	.word	DMtxt0
+	.byte	12	;add text
+	.byte	$1a,$21
+	.byte	A4
+	.byte	11	;add text
+	.byte	$1b,$35
+	.word	DMtxt1
+	.byte	12	;add text
+	.byte	$5a,$35
+	.byte	A2
+	.byte	0	;end of defintion
+
+CanBox:	.byte	$80 | $01
+	.byte	12,$20,$1b,A5
+	.byte	$02,$0f,$40
+	.byte	0
+
+OKBox:	.byte	$80 | $01
+	.byte	12,$20,$1b,A5
+	.byte	$01,$0f,$40
+	.byte	0
+
+;*********************************
+;* DFerrors - take an disk error in .x and
+;* display appropriate message.
+;*
+;*********************************
+
+DFerrors:	stx	A4L	;save error code
+	cpx	#$00	;was there an error?
+	beq	99$	;if not, exit
+	ldy #$00
+97$:	lda	ERcht,y	;check chart for valid errors
+	cmp	A4L
+	bne	98$
+	lda	ERcht+1,y	;now find address of error
+	sta	A5L	;   text string
+	lda	ERcht+2,y
+	sta	A5H
+	bra	54$
+98$:	iny		;increment error chart counter
+	iny		;  for another run
+	iny
+	cpy	#$15	;seven total valid errors
+	bne	97$
+	ldw	A5,#ERtxt8	;no valid error, so use Disk Error
+	ldw	R0,#CanBox
+54$:	jsr	DoDlgBox	;now open error window
+	lda	#$ff	;send back error code
+	rts
+99$:	lda	#$00	;send back no error
+	rts
+ERcht:	.byte	3	;error codes, and pointer to
+	.word	ERtxt1	;their descriptors.
+	.byte	5
+	.word	ERtxt2	;if adding a code, remember
+	.byte	11	;to set counter as there is
+	.word	ERtxt3	;no table delimeter
+	.byte	13
+	.word	ERtxt4
+	.byte	31
+	.word	ERtxt5
+	.byte	32
+	.word	ERtxt6
+	.byte	39
+	.word	ERtxt7
+
+
+
+;*********************************
+;* DriveLetter - calculate and return A,B,C from
+;*  a given drive name.
+;* CmpA5A6 - compare two strings
+;*********************************
+
+DriveLetter:	ldb	Temp,#'A'	;assume it's A
+	ldb	Temp+1,#$00
+	ldx	#A5
+	jsr	GetPtrCurDkNm	;get Drive Name
+	ldw	A6,#DrACurDkNm
+	jsr	CmpA5A6
+	beq	34$
+	ldw	A6,#DrBCurDkNm	; compare them to others
+	jsr	CmpA5A6
+	beq	33$
+	ldw	A6,#DrCCurDkNm
+	jsr	CmpA5A6
+	bne	34$
+	ldb	Temp,#'C'
+	bra	34$
+33$:	ldb	Temp,#'B'	;was B
+34$:	rts
+
+CmpA5A6:	ldy #18
+33$:	dey		;compare names
+	beq	34$
+	lda	(A5),y
+	cmp	(A6),y
+	beq	33$
+34$:	rts
+
+;*********************************
+;* GitGoin - read in features button data
+;*  Put those buttons on the screen.
+;*
+;*********************************
+
+GitGoin:	ldw	R6,Features	; find "features"
+	ldb	$886e,#$ff
+	jsr	FindFile
+	cpx	#0
+	beq	10$	; is this really the disk?
+	ldw	A5,#NLtxt0
+	ldw	R0,#CanBox
+	jsr	DoDlgBox	; nope, so leave...
+	jmp	OpenUp
+10$:	ldw	R0,#5040
+	ldw	R1,#Pdex	; clear all entries
+	jsr	ClearRam
+	ldw	A5,#PData	; set up read pointers
+	mvw	$8401,R1
+	ldw	R5,#0
+11$:	ldw	R4,#BlkBuf
+	jsr	ReadByte
+	ldy	#0
+	sta	(A5),y	; read all table data!
+	avw	#1,A5
+	cpx	#0
+	beq	11$
+	jsr	ParseL	; parse read data
+	jsr	ScreenUp	; make main screen
+	rts
+
+;*********************************
+;* ScreenUp - bring up main screen, save
+;* color scheme, display graphics, set up
+;* buttons, and set up menu.
+;*********************************
+
+ScreenUp:	ldb	ClearScreen+1,#0
+	ldw	R0,#ClearScreen	; clear screen
+	jsr	GraphicsString
+	jsr	InitForIO
+	mvb	53287,Colors
+	mvb	53280,Colors+1	; save screen colors
+	mvb	53281,Colors+2
+	jsr	DoneWithIO
+	jsr	ColorUp	; bring up new colors
+	jsr	i_BitmapUp
+	.word	LOADSTAR
+	.byte	9
+	.byte	0
+	.byte	LSx	; show LS graphic at top
+	.byte	LSy
+	ldw	R0,#MMenu
+	lda	#0
+	jsr	DoMenu	; set up main menu
+	jsr	ButtsUp	; put up main buttons
+	jsr	LineUp	; show desc. line
+	jsr	ClrLine	; clear text in desc line
+	ldw	otherPressVec,#Clicks1
+	rts
+
+;*********************************
+;* ColorUp - color the main screen, the
+;* main buttons, the graphic.
+;* UnColor - remove color scheme
+;*********************************
+
+ColorUp:	jsr	InitForIO
+	ldb	53280,#1
+	sta	53281	; make black border
+	sta	53287
+	jsr	DoneWithIO
+	ldb	R2L,#(7*16)+0
+	ldw	R1,#COLOR_MATRIX
+	ldw	R0,#(25*40)	; make yellow/black bckgrd
+	jsr	FillRam
+	ldw	A0,#COLOR_MATRIX+8
+	ldy	#25
+10$:	lda	#(1*16)+0	; do white line
+	sta	(A0),y
+	ylp	10$
+	avw	#40,A0
+	ldy	#25
+11$:	lda	#(3*16)+0	; do cyan line
+	sta	(A0),y
+	ylp	11$
+	avw	#40,A0
+	ldy	#25
+12$:	lda	#(14*16)+0	; do light blue line
+	sta	(A0),y
+	ylp	12$
+	ldw	A0,#COLOR_MATRIX+(22*40)
+	ldy	#80+39
+13$:	lda	#(10*16)+0	; do light red lines
+	sta	(A0),y
+	ylp	13$
+	rts
+
+UnColor:	mvb	screencolors,R2L	; restore old GEOS colors
+	ldw	R1,#COLOR_MATRIX
+	ldw	R0,#(25*40)
+	jsr	FillRam
+	jsr	InitForIO
+	mvb	Colors,53287	; restore background
+	mvb	Colors+1,53280
+	mvb	Colors+2,53281
+	jsr	DoneWithIO
+	rts
+
+
+
+;*********************************
+;* MMenu - data for main menu
+;* IMenu - data for issues submenu
+;*
+;*********************************
+
+MMenu:
+	.byte	0	;top
+	.byte	14	;bottom
+	.word	0	;left
+	.word	55	;right
+	.byte	2|HORIZONTAL	;# items, and menu type
+	.word	MMtxt0	;Here be the text
+	.byte	VERTICAL	;type of sub menu
+	.word	GMenu	;Sub menu structure
+	.word	MMtxt1
+	.byte	VERTICAL
+	.word	IMenu
+
+IMenu:
+	.byte	15	;top scanline
+	.byte	15+1+(2*14)	;bottom scanline,15+1+(#items*14)
+	.word	29	;left x position
+	.word	29+40	;right x position
+	.byte	VERTICAL|2	;# of items (if no DA's)
+	.word	IStxt0	;text for this item
+	.byte	MENU_ACTION
+	.word	R_DoNext
+	.word	IStxt1
+	.byte	MENU_ACTION
+	.word	R_DoQuit
+
+;*********************************
+;* R_DoNext - load another issue
+;* R_DoQuit - exit from presenter
+;*
+;*********************************
+
+R_DoNext:	jsr	GotoFirstMenu
+	jsr	UnColor	; restore disk selection
+	jmp	OpenUp
+
+R_DoQuit:	jsr	GotoFirstMenu
+DoQuit:	jsr	UnColor
+	ldw	A3,#DADrive	; find boot drive and leave
+	jsr	DoDrvM
+	jmp	EnterDeskTop
+
+;*********************************
+;* ParseL - parse the features data into
+;* primary selections for the main set of
+;* buttons on the left.
+;*********************************
+
+ParseL:	ldw	A0,#PData+6
+	ldw	A1,#Pdex	; initialize pointers
+10$:	ldy	#0
+	lda	A0L
+	sta	(A1),y
+	iny		; move L name into Pdex
+	lda	A0H
+	sta	(A1),y
+	ldx	#0
+11$:	ldy	#0	; check a char
+	lda	(A0),y
+	beq	14$	; zero = end
+	cmp	#13
+	bne	12$	; CR = delimeter
+	inx		; count them
+	cpx	#3
+	bne	13$	; next fname
+	avw	#2,A1	; next Pdex entry
+	avw	#1,A0	; point to name
+	bra	10$	; add it and continue
+12$:	ldx	#0	; no CR entry
+13$:	avw	#1,A0
+	bra	11$
+14$:	rts		; all done
+
+
+
+;*********************************
+;* ParseLL - parse the features data into
+;* sub-section data components with which
+;* to build the next menu
+;*********************************
+
+ParseLL:	;* receive Temp w/ index into Pdex/2
+	ldw	R0,#60	; clear out area
+	ldw	R1,#Ldex
+	jsr	ClearRam
+	asl	Temp
+	ldb	Temp+1,#0
+	ldw	A2,#Pdex	; set up first file
+	adw	Temp,A2
+	ldy	#0
+	lda	(A2),y	; now get address
+	sta	A0L
+	iny
+	lda	(A2),y
+	sta	A0H
+	mvw	A0,A4
+	ldw	A1,#Ldex	; initialize destination pointer
+	ldx	#0
+10$:	ldy	#0	; get started checking chars!
+	lda	(A0),y
+	bne	11$
+	rts		; abnormal end
+11$:	cmp	#13
+	bne	13$
+	inx
+	cpx	#2	; count yer CRs, count 'em
+	bne	14$	;    1 by 1 ....
+	avw	#1,A0
+	ldy	#0
+	lda	(A0),y	; will there be 3?
+	cmp	#13
+	bne	12$
+	rts		; a happy exit
+12$:	lda	(A0),y
+	beq	15$	; bad filename, done
+	lda	A0L
+	sta	(A1),y
+	iny
+	lda	A0H	; found one, xfer pointer
+	sta	(A1),y
+	avw	#2,A1
+	bra	14$
+13$:	ldx	#0
+14$:	avw	#1,A0	; increment counter
+	bra	10$
+15$:	rts
+
+
+
+;*********************************
+;* ParseC - parse from submenu selection
+;* in Pdata pointers to aspects pertaining
+;* to a single file to build final action menu.
+;*********************************
+
+ParseC:	lda	Temp	; index to clicked file
+	asl	a
+	tax
+	lda	Ldex,x	; get first line of info
+	sta	R0L
+	inx
+	lda	Ldex,x
+	sta	R0H
+	jsr	NxtTH	; find next CR
+	mvw	R0,A5
+	jsr	NxtTH
+	mvw	R0,A6	; save other flags
+	jsr	NxtTH
+	mvw	R0,A7
+	jsr	NxtTH
+	mvw	R0,A8
+	inc	Temp
+	rts
+
+;*********************************
+;* XString - display string, even packed
+;* SPutChar - display char saving .x & .y
+;* NextTH - return ponter to next line of data
+;*********************************
+
+XString:	ldy	#0
+10$:	lda	(R0),y
+	beq	12$	; abnormal ending?
+	tax
+	lda	Trans1,x
+	bne	11$	; straight trans case
+	lda	Trans2,x
+	jsr	SPutChar
+	bra	16$
+11$:	cmp	#13
+	bne	13$
+	lda	#27	; clear end of every line
+	jsr	SPutChar
+12$:	rts		; got a 	CR, all done
+13$:	cmp	#$ff
+	bne	15$
+	cpx	#12
+	bge	12$	; too many spaces error
+14$:	lda	#32
+	jsr	SPutChar
+	dex		; handle spaces code
+	bne	14$
+	bra	16$
+15$:	jsr	SPutChar
+	lda	Trans2,x	; dual character case
+	jsr	SPutChar
+16$:	iny		; continue. will this work?
+	bne	10$
+	rts		; overflow exit
+SPutChar:	stx	A9L
+	sty	A9H
+	jsr	PutChar	; save x and y putchar
+	ldx	A9L
+	ldy	A9H
+	rts
+
+NxtTH:	ldy	#0
+	lda	(R0),y
+	beq	14$	; zero is exit too
+	cmp	#13
+	beq	14$	; found by CR
+	avw	#1,R0	; increment pointer
+	jmp	NxtTH
+14$:	avw	#1,R0
+	rts
+
+;*********************************
+;* ButtsUp - display main screen buttons, init
+;* ScnUp2 - draw a particular button
+;* LineUp, ClrLine - the comment line at bottom
+;*********************************
+
+ButtsUp:	ldw	A0,#Pdex
+	ldb	SUtab+9,#28
+ScnUp2:	mvb	SUtab+9,SUtab+5	; top of box
+	mvb	SUtab+5,SUtab+21
+	inc	SUtab+21
+	avb	#11,SUtab+9	; bottom of box
+	mvb	SUtab+9,SUtab+13
+	inc	SUtab+13
+	mvb	SUtab+13,SUtab+17
+	mvb	SUtab+13,SUtab+25
+	jsr	i_GraphicsString	; draw buttons defined above
+SUtab:	.byte	NEWPATTERN,1
+	.byte	MOVEPENTO,15,0,0
+	.byte	FRAME_RECTO,15+100,0,0
+	.byte	MOVEPENTO,15+2,0,0
+	.byte	LINETO,16+100,0,0
+	.byte	MOVEPENTO,16+100,0,0
+	.byte	LINETO,16+100,0,0
+	.byte	0
+	lda	SUtab+9
+	sec
+	sbc	#3
+	sta	R1H	; fix bottom of text title
+	ldw	R11,#20
+	ldy	#0
+	lda	(A0),y	; get pointer to text
+	sta	R0L
+	iny
+	lda	(A0),y
+	sta	R0H
+	jsr	XString	; put text in box
+	avw	#2,A0
+	avb	#5,SUtab+9	; set up for next box
+	ldy	#1
+	lda	(A0),y
+	beq	10$	; is there a next?
+	jmp	ScnUp2
+10$:	rts
+
+LineUp:	jsr	i_GraphicsString	; draw description box line
+	.byte	NEWPATTERN,1	;  at the bottom
+	.byte	MOVEPENTO,0,0,187
+	.byte	LINETO,63,1,187
+	.byte	MOVEPENTO,0,0,198
+	.byte	LINETO,63,1,198
+	.byte	0
+	rts
+
+ClrLine:	mvb	dispBufferOn,TheEnd
+	ldb	dispBufferOn,(ST_WR_FORE | ST_WR_BACK)
+	jsr	i_GraphicsString	; clear description box line
+	.byte	NEWPATTERN,0
+	.byte	MOVEPENTO,0,0,188
+	.byte	RECTANGLETO,63,1,197
+	.byte	0
+	mvb	TheEnd,dispBufferOn
+	rts
+
+;*********************************
+;* Clicks1 - handle clicks on one of the
+;* main buttons.  if one is clicked, call the
+;* routine to build the subfeatures menu
+;*********************************
+
+Clicks1:	lda	ClickF
+	beq	10$	; fixes the click-off "feature"
+	ldb	ClickF,#0
+	rts
+10$:	inc	ClickF
+	ldb	R2L,#28
+	ldb	R2H,#185
+	ldw	R3,#15	; is it in click region?
+	ldw	R4,#115
+	ldb	Temp,#0
+	jsr	IsMseInRegion
+	cmp	#$ff
+	beq	11$
+	rts
+11$:	mvb	R2L,R2H
+	avb	#11,R2H
+	jsr	IsMseInRegion	; is in this box?
+	cmp	#$ff
+	beq	12$
+	lda	Temp
+	asl	a	; look for next box?
+	tax
+	inx
+	lda	Pdex,x
+	bne	13$
+	rts		; no more to check
+13$:	inc	Temp
+	avb	#16,R2L
+	bra	11$
+	rts
+12$:	jsr	SaveRRegs
+	jsr	InvertRectangle	; clicked in a square!
+	jsr	ParseLL	; parse file data
+	jsr	MkListBox
+	lda	#$18
+	jsr	PutChar	; bold
+	mvw	A4,R0
+	jsr	NxtTH
+	ldb	R1H,#195
+	ldw	R11,#70
+	jsr	XString	; show description
+	lda	#27
+	jsr	PutChar	; normal text
+	jsr	RstrRRegs
+	jsr	InvertRectangle	; now do the click
+	rts
+
+
+;*********************************
+;* MkListBox - set up the RHS files menu after
+;* a main selection is made.  Set up Clicks2 to
+;* handle clicks in this menu.
+;*********************************
+
+MkListBox:	ldb	Lnum,#0
+	ldb	LsavT,#25	; save window info
+	ldw	LsavL,#152
+	ldw	LsavR,#270
+	ldw	A0,#COLOR_MATRIX + 138
+	ldx	#20
+11$:	ldy	#17
+12$:	lda	#( 13 * 16 ) + 0
+	sta	(A0),y	; color stuff
+	ylp	12$
+	avw	#40,A0
+	dex
+	bne	11$
+	ldw	A0,#Ldex
+	mvb	LsavT,LsavB
+ScnUp3:	mvb	LsavB,LsavL+2
+	avb	#11,LsavB
+	inc	Lnum
+	ldb	LsavR-1,#FRAME_RECTO
+	ldw	R0,#LUtab
+	jsr	GraphicsString
+	lda	#$18	; set bold
+	jsr	PutChar
+	lda	LsavB
+	sec
+	sbc	#3
+	sta	R1H	; fix bottom of text title
+	ldw	R11,#160
+	ldy	#0
+	lda	(A0),y	; get pointer to text
+	sta	R0L
+	iny
+	lda	(A0),y
+	sta	R0H
+	jsr	XString	; put text in box
+	avw	#2,A0
+	ldy	#1
+ 	lda	(A0),y
+	beq	10$	; is there a next?
+	jmp	ScnUp3
+10$:	lda	#27		; set up the boxness
+	jsr	PutChar
+	ldw	otherPressVec,#Clicks2
+	mvb	LsavT,mouseTop
+	mvb	LsavB,mouseBottom
+	mvw	LsavL,mouseLeft	; save click windo info
+	mvw	LsavR,mouseRight
+	jsr	Lshadow	; make the shadow
+	avw	#5,LsavR
+	avb	#5,LsavB
+	ldy	#32
+	ldw	R11,#165
+	sec
+	jsr	StartMouseMode	; move the mouse
+	ldb	faultData,#0	; trap window moves
+	ldw	mouseFaultVec,#LClean
+	rts
+
+;*********************************
+;* Clicks2 - handle clicks inside a file RHS
+;* menu.  Call routines to set up the Run, Read, Copy
+;* "little" menu.  Pass click control to it.
+;*********************************
+
+Clicks2:	lda	ClickF
+	beq	10$	; fixes the click-off "feature"
+	ldb	ClickF,#0
+	rts
+10$:	inc	ClickF
+	ldb	Temp,#0
+	mvb	LsavT,R2L	; save window pointers
+	mvw	mouseLeft,R3
+	mvw	mouseRight,R4
+11$:	mvb	R2L,R2H
+	avb	#11,R2H
+	jsr	IsMseInRegion	; is in this box?
+	cmp	#$ff
+	beq	12$
+	lda	Temp	; find next box
+	asl	a
+	tax
+	inx
+	lda	Ldex,x
+	bne	13$
+	rts		; no more to check
+13$:	inc	Temp
+	avb	#11,R2L	; point to next box top
+	bra	11$
+	rts
+12$:	jsr	SaveRRegs
+	jsr	InvertRectangle	; clicked in a square!
+	jsr	ParseC	; parse data for this file
+	jsr	ClrLine
+	mvw	A5,R0
+	ldb	R1H,#195
+	ldw	R11,#70
+	lda	#$18
+	jsr	PutChar
+	jsr	XString	; display description for click
+	lda	#27
+	jsr	PutChar
+	jsr	RstrRRegs
+	jsr	InvertRectangle	; do the actual click
+	jsr	MkGoBox	; make the little go box
+	rts
+
+
+;*********************************
+;* Clicks3 - handle clicks inside the "little"
+;* menu (run, read, copy). On a valid click,
+;* call the DoIt routine.
+;*********************************
+
+Clicks3:	lda	ClickF
+	beq	10$	; fixes the click-off "feature"
+	ldb	ClickF,#0
+	rts
+10$:	inc	ClickF
+	ldb	Temp,#0
+	ldb	R2L,#80	; load window dimensions
+	ldw	R3,#130
+	ldw	R4,#187
+11$:	mvb	R2L,R2H
+	avb	#12,R2H
+	jsr	IsMseInRegion	; is in this box?
+	cmp	#$ff
+	beq	12$
+	lda	Temp
+	cmp	#2
+	bne	13$
+	rts		; no more to check
+13$:	inc	Temp
+	avb	#12,R2L
+	bra	11$
+	rts
+12$:	jsr	InvertRectangle	; clicked in a square!
+	jsr	SaveRRegs
+	ldw	R0,#COLOR_MATRIX
+	ldw	R1,#ColorSave	; save background colors
+	ldw	R2,#1000
+	jsr	MoveData
+	ldy	Temp
+	inc	Temp
+	lda	(A7),y
+	cmp	#'1'	; ensure the option exists
+	beq	14$
+	ldb	Temp,#0
+14$:	jsr	RstrRRegs
+	jsr	InvertRectangle
+	lda	Temp	; do the click
+	bne	15$
+	rts
+15$:	jmp	DoIt	; perform the operation
+
+;*********************************
+;* MkGoBox - draw the "little" run, read, copy
+;* box, set up click control through Clicks3,
+;* pass control to it.
+;*********************************
+
+MkGoBox:	ldb	dispBufferOn,#(ST_WR_FORE)
+	ldw	A0,#COLOR_MATRIX + (10*40) + 15
+	ldx	#5
+10$:	ldy	#8
+11$:	lda	#( 3 * 16 ) + 0
+	sta	(A0),y	; color stuff
+	ylp	11$
+	avw	#40,A0
+	dex
+	bne	10$
+	jsr	DrGoBox	; draw the box
+	lda	#27		; set up the boxness
+	jsr	PutChar
+	ldw	otherPressVec,#Clicks3
+	mvb	mouseBottom,LsavB
+	mvw	mouseRight,LsavR
+	ldb	mouseTop,#80	; load window dimensions
+	ldb	mouseBottom,#116
+	ldw	mouseLeft,#130
+	ldw	mouseRight,#187
+	ldy	#100
+	ldw	R11,#165
+	sec
+	jsr	StartMouseMode	; move the mouse
+	ldb	faultData,#0
+	ldw	mouseFaultVec,#CClean
+	rts		; pass move ctrl to CClean=
+
+
+
+;*********************************
+;* DrGoBox - data for drawing the "little" menu.
+;* Put appropriate commands in box based on
+;* data for file clicked on in Clicks2.
+;*********************************
+
+DrGoBox:	jsr	i_GraphicsString
+	.byte	NEWPATTERN,1
+	.byte	MOVEPENTO,130,0,80
+	.byte	RECTANGLETO,187,0,116
+	.byte	NEWPATTERN,0
+	.byte	MOVEPENTO,131,0,81
+	.byte	RECTANGLETO,186,0,91
+	.byte	MOVEPENTO,131,0,93	; draw the box
+	.byte	RECTANGLETO,186,0,103
+	.byte	MOVEPENTO,131,0,105
+	.byte	RECTANGLETO,186,0,115
+	.byte	NEWPATTERN,1
+	.byte	MOVEPENTO,188,0,81
+	.byte	RECTANGLETO,190,0,118
+	.byte	MOVEPENTO,132,0,117
+	.byte	RECTANGLETO,190,0,118
+	.byte	0
+RRP:	ldb	R1H,#89	; first line
+	ldw	R11,#135
+	ldy	#0
+	lda	(A7),y	; get pointer to text
+	cmp	#'1'	; read it marked?
+	bne	12$
+	ldw	R0,#ROtxt0	; read it!
+	jsr	PutString
+	ldw	R11,#135
+12$:	avw	#12,R1H
+	ldy	#1
+	lda	(A7),y
+	cmp	#'1'	; run it marked?
+	bne	13$
+	ldw	R0,#ROtxt1	; run it!
+	jsr	PutString
+	ldw	R11,#135
+13$:	avw	#12,R1H
+	ldy	#2
+	lda	(A7),y
+	cmp	#'1'	; copy it marked/
+	bne	14$
+	ldw	R0,#ROtxt2	; copy it!
+	jsr	PutString
+14$:	rts
+
+;*********************************
+;* CClean, C2Clean - clean up after the
+;* "little" run, read, copy box and pass
+;* control back to RHS menu & Clicks2
+;*********************************
+
+CClean:	cpb	mouseYPos,mouseTop
+	beq	10$	; did user move outside win?
+	cpb	mouseYPos,mouseBottom
+	beq	10$	; ** damn this
+	cpw	mouseXPos,mouseLeft
+	beq	10$
+	cpw	mouseXPos,mouseRight
+	beq	10$
+	rts
+10$:
+C2Clean:	jsr	ClrLine	; clear the description line
+	ldw	A0,#COLOR_MATRIX + (10*40) + 15
+	ldx	#5
+11$:	ldy	#8
+12$:	lda	#( 13 * 16 ) + 0
+	sta	(A0),y	; color stuff
+	ylp	12$
+	avw	#40,A0
+	dex
+	bne	11$
+	ldb	R2L,#80
+	ldb	R2H,#118
+	ldw	R3,#130	; recover stuff behind menu
+	ldw	R4,#190
+	jsr	RecoverRectangle
+	ldb	dispBufferOn,#(ST_WR_FORE | ST_WR_BACK)
+	ldw	otherPressVec,#Clicks2
+	mvb	LsavT,mouseTop
+	mvb	LsavB,mouseBottom
+	mvw	LsavL,mouseLeft	; load old window dimentions
+	mvw	LsavR,mouseRight
+	avb	#5,LsavB
+	avw	#5,LsavR
+	ldb	faultData,#0	; move mouse back
+	ldw	mouseFaultVec,#LClean
+	lda	#$18
+	jsr	PutChar
+	mvw	A4,R0
+	jsr	NxtTH
+	ldb	R1H,#195
+	ldw	R11,#70
+	jsr	XString	; display old description $
+	lda	#27
+	jsr	PutChar
+	rts
+
+;*********************************
+;* LClean - clean up after RHS menu, return
+;* control to LHS buttons and Clicks1.
+;* Lshadow - draw shadow for RHS menu
+;*********************************
+
+LClean:	cpb	mouseYPos,mouseTop
+	beq	10$
+	cpb	mouseYPos,mouseBottom
+	beq	10$	; ** damn this too
+	cpw	mouseXPos,mouseLeft
+	beq	10$	; should be unnecessary
+	cpw	mouseXPos,mouseRight
+	beq	10$
+	rts
+10$:	jsr	ClrLine	; clear the description line
+	ldw	A0,#COLOR_MATRIX + 135
+	ldx	#20
+11$:	ldy	#20
+12$:	lda	#( 7 * 16 ) + 0	; 0*16  + 15
+	sta	(A0),y
+	ylp	12$	; fix colors
+	avw	#40,A0
+	dex
+	bne	11$
+	mvb	LsavT, LsavL+2
+	ldb	LsavR-1,#RECTANGLETO
+	ldw	R0,#LUtab
+	jsr	GraphicsString
+	ldb	mouseTop,#0
+	ldb	mouseBottom,#199
+	ldw	mouseLeft,#0	; restore window
+	ldw	mouseRight,#319
+	ldw	mouseFaultVec,#0	; restore vectors
+	ldw	otherPressVec,#Clicks1
+	rts
+
+LUtab:	.byte	NEWPATTERN,0,MOVEPENTO
+LsavL:	.word	152
+	.byte	0,FRAME_RECTO
+LsavR:	.word	270
+LsavB:	.byte	0,0
+
+Lshadow:	mvw	LsavR,SHtab+3	; set up/dn shadow
+	mvw	LsavR,SHtab+7
+	avw	#5,SHtab+7
+	mvb	LsavT,SHtab+5
+	avb	#5,SHtab+5
+	mvb	LsavB,SHtab+9
+	avb	#5,SHtab+9	; done w up/dn shadow
+	mvw	LsavL,SHtab+11	; start left-right shadow
+	avw	#5,SHtab+11
+	mvw	LsavR,SHtab+15
+	avw	#5,SHtab+15
+	mvb	LsavB,SHtab+13
+	mvb	LsavB,SHtab+17
+	avb	#5,SHtab+17
+	jsr	i_GraphicsString
+SHtab:	.byte	NEWPATTERN,1	; 1
+	.byte	MOVEPENTO,0,0,0	; 3-4,5
+	.byte	RECTANGLETO,0,0,0	; 7-8,9
+	.byte	MOVEPENTO,0,0,0	; 11-12,13
+	.byte	RECTANGLETO,0,0,0	; 15-16,17
+	.byte	0
+	rts
+
+LOADSTAR:
+
+<img src="00267.png" />
+LSx = picW
+LSy = picH
+</pre></body></html>

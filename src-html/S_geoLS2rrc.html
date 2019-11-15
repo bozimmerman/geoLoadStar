@@ -1,0 +1,1117 @@
+<!DOCTYPE html><html><head><title>Untitled</title></head><body><pre>
+;*********************************
+;* LoadStar Presenter!  rev.2 (1.8)
+;* Read It, Run It, Copy It routines
+;* By Bo Zimmerman
+;* Completed January  , 1997
+;* Revised January, 1998, 2009
+;*********************************
+
+.if	Pass1
+	.noeqin
+	.noglbl
+	.include	GEOSequates
+	.eqin
+	.glbl
+.endif
+	; Table of Contents (abbreviated)
+	; Run It - 6
+	; Read It - 7
+	; Copy It
+	; Variables in free ram 18
+	.psect
+
+;*********************************
+;* DoIt - handle one of the Read, Run, 
+;* Copy clicks.  Pass control to routines.
+;* RstrColor - restore normal background.
+;*********************************
+
+DoIt:	mvw	mouseTop,BackB
+	mvw	mouseRight,BackR
+	mvw	mouseLeft,BackL
+	lda	Temp	; save window dimensions
+	cmp	#1
+	bne	10$
+	jmp	DoReadIt	; read it
+10$:	cmp	#2
+	bne	11$
+	jmp	DoRunIt	; run it
+11$:	jmp	DoCopyIt	; copy it
+
+RstrColor:	ldw	R1,#COLOR_MATRIX
+	ldw	R0,#ColorSave	; save background colors
+	ldw	R2,#1000
+	jmp	MoveData
+
+
+
+;*********************************
+;* WrongDisk - prompt for correct LS disk.
+;* LilBBox - Display a click box over the 
+;* official colors, restore afterwards.
+;*********************************
+
+LilBBox:
+	ldw	A0,#COLOR_MATRIX + 167
+	ldy	#24
+10$:	lda	#( 11 * 16 ) + 15
+	sta	(A0),y
+	ylp	10$	; fix first line
+	avw	#40,A0
+	ldx	#11
+11$:	ldy	#25
+12$:	lda	#( 11 * 16 ) + 15
+	sta	(A0),y
+	ylp	12$	; fix colors
+	avw	#40,A0
+	dex
+	bne	11$
+	avw	#1,A0
+	ldy	#24
+13$:	lda	#( 11 * 16 ) + 15
+	sta	(A0),y
+	ylp	13$	; fix last line
+	jmp	DoDlgBox	
+WrongBox:	.byte	$80 | $01
+	.byte	$01,$03,$41	;OK icon
+	.byte	$02,$0f,$41	;Cancel icon
+	.byte	11	;add text
+	.byte	$12,$12
+	.word	WRtxt0
+	.byte	11	;add text
+	.byte	$12,$22
+	.word	WRtxt1
+	.byte	0	;end of defintion
+
+WrongDisk:	; *** prompt for right disk
+	ldy	#0
+	lda	(A8),y
+	sta	WRtxt0 + 29
+	mvw	A5,Temp2	; save these registers
+	mvw	A6,Temp2 + 2
+	jsr	DriveLetter	; find drive letter needed
+	mvw	Temp2,A5
+	mvw	Temp2 + 2,A6	; restore these registers
+	lda	Temp
+	sta	WRtxt1 + 12
+	ldw	R0,#WrongBox
+	jsr	LilBBox	; show ok/cancel box
+	jsr	RstrColor
+	cbi	sysDBData,#1
+	rts
+
+;*********************************
+;* LilBCan - show a cancel box
+;* LilBCanBox - cancel box data
+;* 
+;*********************************
+
+LilBCan:	plw	R13	; retreive address
+	plw	R15	; get string addresses
+	plw	R14
+	phw	R13	; push address back
+	ldw	R0,#LilBCanBox
+	jsr	LilBBox
+	cbi	sysDBData,#2
+	rts
+LilBCanBox:	.byte	$80 | $01
+	.byte	$02,$0f,$41	;cancel icon
+	.byte	12	;add text
+	.byte	$12,$12
+	.byte	R14
+	.byte	1	;add text
+	.byte	$12,$22
+	.byte	R15
+	.byte	0	;end of defintion
+
+;*********************************
+;* DoSetup - Find appropriate file to complete
+;* a Read, Run, or Copy command.  Return
+;* file information (if found) to routine
+;*********************************
+
+DoSetup:	sta	Temp2	; b=66,t=84,p=80 (file type)
+	lda	#46	; add a '.'
+	sta	Temp2+1
+	cbi	Temp2,#0	; null header sent
+	beq	90$
+	ldy	#0
+	ldx	#2	; point ahead of prefix
+	bra	10$
+90$:	ldy	#0
+	ldx	#0	; handle LSBRIEFS exception
+10$:	lda	(A6),y
+	cmp	#13	; CR reached in data?
+	beq	11$
+	sta	Temp2,x	; copy to here
+	inx
+	iny
+	bne	10$
+11$:	lda	#0
+	sta	Temp2,x
+	jsr	OpenDisk	; re-open this disk
+	ldw	R6,#Temp2
+	ldb	$8863,#0
+	jsr	FindFile	; look for the file
+	ldw	R6,#$8400
+	ldy	#$1c
+	lda	(R6),y
+	sta	SzTmp	; store the file's size
+	inc	SzTmp
+	cpx	#0
+	rts
+LSBRIEFS:	.byte	"LS BRIEFS",13
+
+
+;*********************************
+;* DoRunIt - find and run b.filename by 
+;* putting drive pokes into the BASIC buffer
+;* and dropping out of GEOS.
+;*********************************
+
+DoRunIt:	lda	#66
+	jsr	DoSetup	; find runable file
+	beq	10$
+	lda	#0
+	jsr	DoSetup	; find without the ".b"
+	beq	10$
+	jsr	WrongDisk	; prompt for right disk
+	beq	DoRunIt
+	jmp	RGitOut	; go back to little box
+10$:	ldb	$2e,#8
+	adb	SzTmp,$2e
+	ldw	$37,#$9fff
+	ldw	R0,#RUtxt0	; load def. drive pokes
+	ldy	#8
+	cbi	curDrive,#10
+	blt	11$	; calculate drive to make def.
+	lda	#'1'	
+	bne	12$
+11$:	clc
+	adc	#48	; add first char
+12$:	sta	(R0),y
+	iny
+	cbi	curDrive,#10
+	bgt	13$
+	lda	#':'	; add second char
+	bne	14$
+13$:	clc
+	adc	#38
+14$:	sta	(R0),y
+	ldw	R0,#RUtxt0	; the BASIC $ will be here
+	ldw	R7,#$0801
+	jmp	ToBasic	; bye bye presenter!
+
+;*********************************
+;* DoReadIt - find file to read, draw the 
+;* read it box, then pass control to Clicks4
+;* to handle mouse movements. ReRead-
+;* Set up read vectors only.
+;*********************************
+
+DoReadIt:	lda	#84	; first check for t. (unpacked)
+	jsr	DoSetup
+	beq	10$
+	lda	#80	; then check for p.
+	jsr	DoSetup
+	beq	10$
+	jsr	WrongDisk	; prompt for new disk
+	beq	DoReadIt
+	jmp	RGitOut	; cancel hit, so get out
+10$:	jsr	i_GraphicsString
+	.byte	NEWPATTERN,0
+	.byte	MOVEPENTO,0+56,0,0+16
+	.byte	RECTANGLETO,63-56,1,199-16
+	.byte	NEWPATTERN,1	; build the readit box
+	.byte	MOVEPENTO,0+58,0,0+18
+	.byte	FRAME_RECTO,63-58,1,199-18
+	.byte	0
+	ldw	A0,#COLOR_MATRIX + 86
+	ldx	#21
+11$:	ldy	#26	; make the readit box grey
+12$:	lda	#( 11 * 16 ) + 15
+	sta	(A0),y
+	ylp	12$	; fix colors
+	avw	#40,A0
+	dex
+	bne	11$
+	jsr	ReRead
+	jsr	GetGarbage	; get garbage chars
+	jsr	ReadFirst	; read the first page
+	rts
+ReRead:	ldw	otherPressVec,#Clicks4
+	ldb	mouseTop,#0+16
+	ldb	mouseBottom,#199-16
+	ldw	mouseLeft,#0+56	; set up readit handlers
+	ldw	mouseRight,#319-56
+	ldy	#100
+	ldw	R11,#165
+	sec
+	jsr	StartMouseMode	; move the mouse
+	ldb	faultData,#0	; RClean handles up/dn
+	ldw	mouseFaultVec,#RClean
+	rts
+
+
+
+;*********************************
+;* GetGarbage - get unknown chars at the
+;* beginning of a packed file.  Save Track and
+;* Sector info for first page.
+;*********************************
+
+GetGarbage:
+	mvw	$8401,R1	; for R1
+	mvw	R1,RTop
+	mvw	R1,TSuse
+	ldw	R4,#BlkBuf	; get first block
+	jsr	GetBlock
+	ldw	R5,#0
+	jsr	ReadByte	; get garbage bytes
+	jsr	ReadByte
+	mvw	R5,Byte
+	mvw	BlkBuf,TnS	; save vars for reading
+	mvw	TnS,R1
+	mvw	TnS,TSchk
+	mvw	Byte,RTop+4
+	mvw	TnS,RTop+2	; save top, first page
+	ldw	RTabPtr,#RList-6
+	rts
+
+;*********************************
+;* RClean - handle mouse page ups & downs
+;* Stop - handle page faults for print box
+;*********************************
+
+RClean:	cpb	mouseYPos,mouseTop
+	bne	10$
+	cwi	RTabPtr,#RList	; can't go before the top
+	beq	11$
+	jmp	ReadLast	; up ok, goto prev page
+10$:	cpb	mouseYPos,mouseBottom
+	bne	11$
+	cbi	XSAVE,#0
+	bne	11$	; can't go past the end
+	jmp	ReadFirst	
+11$:	
+
+Stop:	rts
+
+;*********************************
+;* Clicks4 - handle a click in the reading
+;* window.. draw print box, set up Clicks5
+;*********************************
+Clicks4:	lda	ClickF
+	beq	10$	; fixes the click-off "feature"
+	ldb	ClickF,#0
+	rts
+10$:	inc	ClickF	; a click in readit means...
+	jsr	i_GraphicString
+	.byte	NEWPATTERN,1
+	.byte	MOVEPENTO,115,0,60
+	.byte	RECTANGLETO,202,0,136
+	.byte	NEWPATTERN,0
+	.byte	MOVEPENTO,116,0,61
+	.byte	RECTANGLETO,201,0,135
+	.byte	0
+	lda	PrtDrv
+	beq	11$
+	jsr	Pcon	; draw Print icon
+11$:	jsr	Dcon	; draw Done icon
+	jsr	Ocon	; draw Continue icon
+	ldw	otherPressVec,#Clicks5
+	ldb	mouseTop,#60
+	ldb	mouseBottom,#136
+	ldw	mouseLeft,#115	; set up readit handlers
+	ldw	mouseRight,#202
+	ldy	#100
+	ldw	R11,#165
+	sec
+	jsr	StartMouseMode	; move the mouse
+	ldb	faultData,#0	; RClean handles up/dn
+	ldw	mouseFaultVec,#Stop
+	rts
+
+;*********************************
+;* Clicks5 - handle clicks in the print box
+;* clean up for done, and continue
+;*********************************
+Clicks5:	lda	ClickF
+	beq	10$	; fixes the click-off "feature"
+	ldb	ClickF,#0
+	rts
+10$:	inc	ClickF	; a click in readit means...
+	ldw	R3,#$89	; left of click
+	ldw	R4,#$b6	; right of click
+	lda	PrtDrv
+	beq	11$
+	ldw	R2,#(80*256)+67	; the print box
+	jsr	IsMseInRegion
+	cmp	#$ff	; print box clicked?
+	bne	11$
+	jsr	InvertMe
+	jsr	SwapDrv	; swap in printer driver
+	ldw	R2,#(80*256)+67	; the print box
+	jsr	InvertMe		; print clicked!
+	jmp	DoPrint
+11$:	ldw	R2,#(103*256)+90
+	jsr	IsMseInRegion
+	cmp	#$ff	; done button clicked?
+	bne	13$
+	jsr	InvertMe
+	ldw	R2,#(103*256)+90
+	jsr	InvertMe	; done button clicked
+	jsr	RIclean	; clean up, yer done
+12$:	rts
+13$:	ldw	R2,#(126*256)+113
+	jsr	IsMseInRegion
+	cmp	#$ff	; continue button clicked?
+	bne	12$
+	jsr	InvertMe
+	jsr	ReRead
+	ldw	R2,#(126*256)+113
+	jsr	InvertMe	; continue button clicked
+	ldw	R3,#6
+	adw	R3,RTabPtr	; set up last as this
+	jsr	RTabLast	; get the proper block
+	jmp	ReadNext	; read the page over
+InvertMe:	ldw	R3,#$89	; left of click
+	ldw	R4,#$b6	; right of click
+	jmp	InvertRectangle
+
+
+;*********************************
+;* RIclean - clean up ReadIt stuff. Return 
+;* control to "little" menu and Clicks3.
+;* Add2B - Add a char to printable BString
+;*********************************
+RIclean:	ldb	R2L,#0	; restore and return
+	ldb	R2H,#199
+	ldw	R3,#0
+	ldw	R4,#319
+	jsr	RecoverRectangle	; get stuff behind box
+	jsr	ReDoMenu	; reinstitute the menu
+RGitOut:	jsr	RstrColor	; restore the colors
+	ldw	otherPressVec,#Clicks3
+	mvw	BackB,mouseTop
+	mvw	BackL,mouseLeft	; little box now in control
+	mvw	BackR,mouseRight
+	ldy	#100
+	ldw	R11,#165
+	sec
+	jsr	StartMouseMode	; move the mouse back
+	ldb	faultData,#0
+	ldw	mouseFaultVec,#CClean
+	jmp	DrGoBox	; redraw the little box, bye
+
+Add2B:	stx	R11L	; temporarily save .x
+	ldy	R10H
+	sta	BString,y	; save the character
+	ldx	#0
+10$:	lda	BadChars,x	; check for a bad one
+	beq	11$	; null, so done
+	cmp	BString,y	
+	beq	12$	; found bad one, no add
+	inx
+	bne	10$	; keep looping		
+11$:	inc	R10H	; increment index
+12$:	ldx	R11L	; restore .x, exit
+	rts
+BadChars:	.byte	24,25,26,27,127,128,0
+
+;*********************************
+;* RTabAdd - Add track and sector info for
+;* a new page to the page table.
+;* RTabLast - restore and return to previous page.
+;*********************************
+
+RTabAdd:	avw	#6,RTabPtr
+	mvw	RTabPtr,R3	; save pos, this page.
+	ldy	#0
+	lda	TSuse
+	sta	(R3),y	; save current page
+	iny
+	lda	TSuse+1
+	sta	(R3),y
+	iny
+	lda	TSchk
+	sta	(R3),y	; save compare value
+	iny
+	lda	TSchk+1
+	sta	(R3),y
+	iny
+	lda	Byte	; save position
+	sta	(R3),y
+	iny
+	lda	Byte+1
+	sta	(R3),y
+	rts
+
+RTabLast:	ldw	R3,#6	; go to previous page
+	sbw	R3,RTabPtr
+	mvw	RTabPtr,R3
+	ldy	#0
+	lda	(R3),y
+	sta	TSuse
+	iny		; save new current page
+	lda	(R3),y
+	sta	TSuse+1
+	iny
+	lda	(R3),y
+	sta	TSchk
+	iny		; save page to check
+	lda	(R3),y
+	sta	TSchk+1
+	iny
+	lda	(R3),y
+	sta	Byte
+	iny		; save new position
+	lda	(R3),y
+	sta	Byte+1
+	mvw	TSchk,TnS
+	mvw	TSuse,R1
+	ldw	R4,#BlkBuf	; get the old block
+	jsr	GetBlock
+	rts
+
+
+;*********************************
+;* ReadLine - read and print a line of text
+;* ReadFirst, ReadLast, ReadNext - read
+;* and print whole pages of text.
+;*********************************
+
+ReadLine:	mvw	TnS,R1
+	mvw	Byte,R5	; set up read buffer
+	ldw	R4,#BlkBuf
+	ldw	A0,#AString
+	mvw	BlkBuf,TSnxt
+10$:	jsr	ReadByte
+	ldy	#0	; store char in line
+	sta	(A0),y
+	cmp	#0
+	beq	11$
+	cpx	#0
+	bne	11$	; error or eof? exit
+	cmp	#13
+	beq	11$	; carriage return? exit
+	avw	#1,A0	
+	bra	10$	; add to pointer & go back
+11$:	lda	#13	; always end string w/ cr
+	sta	(A0),y
+	mvw	R1,TnS
+	mvw	R5,Byte	; save read buf vars
+	ldw	R0,#AString
+	stx	XSAVE
+	cpw	TSnxt,BlkBuf	; now note TS changes
+	beq	12$
+	mvw	TSchk,TSuse	; save last nxt (THIS) T&S
+	mvw	BlkBuf,TSchk	; save new next
+12$:	rts
+
+ReadFirst:	jsr	RTabAdd	; read the first page
+	bra	ReadNext
+ReadLast:	jsr	RTabLast	; read a previous page
+ReadNext:	jsr	i_GraphicsString	; read the next page
+	.byte	NEWPATTERN,0	; cleat the page
+	.byte	MOVEPENTO,0+59,0,0+19
+	.byte	RECTANGLETO,63-59,1,199-19
+	.byte	0
+	ldb	LineY,#18+11	; init page position
+	ldw	LineX,#64
+10$:	jsr	ReadLine	; get a line
+	mvw	LineX,R11
+	mvb	LineY,R1H
+	jsr	XString	; write a line
+	avw	#11,LineY
+	cbi	LineY,#199-18
+	bgt	11$	; check pos
+	cbi	XSAVE,#0
+	beq	10$	; check file status
+11$:	rts	
+		
+
+;*********************************
+;* DoPrint - Print the document currently
+;* being read.
+;*********************************
+DoPrint:	jsr	InitForPrint	; init the printer
+	jsr	StartASCII	; check for ready status
+	cpx	#0
+	beq	10$	; if printer not ready...
+99$:	jsr	StopPrint
+	jmp	SwapDrv	; swap out printer driver
+10$:	lda	#84
+	jsr	DoSetup
+	beq	19$
+	lda	#80
+	jsr	DoSetup
+	bne	99$
+19$:	jsr	GetGarbage
+	jsr	i_GraphicsString
+	.byte	NEWPATTERN,0
+	.byte	MOVEPENTO,116,0,61
+	.byte	RECTANGLETO,201,0,135
+	.byte	ESC_PUTSTRING,138,0,96
+	.byte	24,"Printing...",27,0
+11$:	jsr	ReadLine
+	ldw	R10,#$ff	; indices to AString,BString
+12$:	inc	R10L
+	ldx	R10L	; read a packed character
+	lda	AString,x
+	tax
+	beq	20$	; abnormal exit-- done!
+	lda	Trans1,x	; get first code
+	bne	13$
+	lda	Trans2,x
+	jsr	Add2B	; straight translation
+	bra	12$
+13$:	cmp	#13	; carriage return
+	bne	15$
+	jsr	Add2B
+14$:	lda	#0	; terminate the string
+	jsr	Add2B
+	bra	20$	; CR found	, output 
+15$:	cmp	#$ff	; space case
+	bne	17$
+	cpx	#12	; abort if too many spaces
+	bge	14$
+16$:	lda	#32
+	jsr	Add2B
+	dex
+	bne	16$
+	bra	12$
+17$:	jsr	Add2B
+	lda	Trans2,x
+	jsr	Add2B
+	bra	12$
+20$:	ldw	R0,#BString
+	ldw	R1,#PrintBuff
+	jsr	PrintASCII
+	cbi	XSAVE,#0
+	beq	11$
+	jsr	StopPrint
+	jsr	SwapDrv	; swap out printer driver
+	jmp	DoReadIt
+
+;*********************************
+;* DoCopyIt - find first file to copy, get dest
+;* drive, and call routines to create and copy
+;* the files and display progress messages.
+;*********************************
+
+DoCopyIt:	jsr	OpenFonS	; open FilesOnSide, get info
+	beq	11$
+10$:	jmp	RGitOut
+11$:	jsr	GetFonS	; read first Filename var
+	bne	10$
+	mvb	curDrive,CSrc	; have source drive!
+	jsr	PickDrive	; pick destination drive
+	beq	10$
+	tax
+	lda	DrvInfo-8,x
+	bne	10$	; drive wasn't there!
+	cpx	CSrc
+	beq	10$	; same as source!
+	stx	CDst	; have destination drive!
+12$:	jsr	SetCpyF	; open source file
+	bne	14$
+	lda	CDst	; open destination drive
+	jsr	SetDevice
+	jsr	OpenDisk	; get destination BAM
+	cpx	#0
+	bne	15$
+	jsr	CreateF	; create file
+	bne	15$
+	jsr	CopingBox	; build file progress box
+13$:	jsr	CopyFile	; copy some blocks
+	bne	15$
+	cbi	CopCont,#0	; more blocks to do
+	bne	13$
+	jsr	NoCope	; recover box
+	lda	Num2Copy	; get next file?
+	beq	14$
+	lda	CSrc	; open destination drive
+	jsr	SetDevice
+	jsr	OpenDisk	; get destination BAM
+	cpx	#0
+	bne	15$
+	jsr	GetFonS	; read first Filename var
+	beq	12$
+14$:	lda	CSrc
+	jsr	SetDevice
+	jmp	RGitOut	; non-error exit
+15$:	jsr	DoR6Error	; disk error aborting exit
+	lda	CSrc	; go back to LS drive
+	jsr	SetDevice
+	jmp	RGitOut
+
+SetCpyF:	lda	CSrc
+	jsr	SetDevice
+	jsr	OpenDisk
+	ldb	$8863,#0
+	ldw	R6,#Filename
+	jsr	FindFile
+	cpx	#0
+	bne	99$
+	ldw	R0,#$8400	; copy src dir blk
+	ldw	R1,#SDirBlk
+	ldw	R2,#$001e
+	jsr	MoveData	; save source dir block
+	ldx	#0
+99$:	rts
+
+;*********************************
+;* OpenFonS - find/read FilesOnSide file
+;* A8 has file side #
+;* A6 has index into Features
+;*********************************
+
+OpenFonS:	ldb	FilesOnSide+14,#48
+	ldy	#0
+	lda	(A8),y	; set right file side #
+	sta	FilesOnSide+14
+	sta	Temp+5	; store this for future checks
+	jsr	OpenDisk	; re-open this
+	cpx	#0
+	bne	99$
+90$:	ldw	R6,#FilesOnSide
+	jsr	FindFile	; find Files On Side X
+	cpx	#0
+	beq	10$	; not found, so look around
+96$:	cbi	Temp+5,#49
+	bne	97$	; is it supposed to be disk 1?
+	cbi	FilesOnSide+14,#52	; have we checked them all?
+	beq	97$
+	inc	FilesOnSide+14	; check the next file
+	bne	90$
+97$:	jsr	WrongDisk	; just plain wrong..show box
+	beq	OpenFonS	; try it again
+99$:	rts
+10$:	ldb	Temp2,#66	; 'b' added to filename
+	ldb	Temp2+1,#46	; '.' added to filename
+	ldy	#0
+11$:	lda	(A6),y
+	sta	Temp2+2,y	; copy rest of filename
+	iny
+	cmp	#13
+	bne	11$	; keep copying until CR
+	mvw	$8401,R1
+	ldw	R4,#FBlkBuf
+	jsr	GetBlock	; get first block of filesonside
+	ldw	R5,#0
+	ldb	Temp+3,#0	; clear line indices
+12$:	cmp	#13	; check for last char first
+	beq	14$	; found! yeah!
+94$:	jsr	ReadByte
+	cpx	#0
+	beq	13$	
+95$:	bne	96$	; EOL! Argh! not found!!!!!!
+13$:	ldy	Temp+3
+	inc	Temp+3	; checking...
+	cmp	Temp2,y
+	beq	12$	; so far, so good.. loop
+	ldy	#0	; not it, so look for CR
+	sty	Temp+3	; clear counter again
+	cmp	#13
+	beq	94$	; all ready for next line
+	jsr	Rd2CR	; finish off this line
+	beq	94$	; EOF was found.. wery bad
+	bne	95$	; ready to check next thing
+14$:	jsr	TransNum	; get Num2Copy from file
+	jsr	Rd2CR	; skip total blocks for now
+	mvw	R5,CpyByt
+	mvw	R4,CpyTnS
+15$:	lda	#0
+	rts
+98$:	lda	#1
+	rts
+
+;*********************************
+;* TransNum - read & translate the num of
+;* files in this group and return in Num2Copy
+;*********************************
+
+TransNum:	ldb	Num2Copy,#0	; remember petskii translation
+	jsr	ReadByte	; this should be a space
+	jsr	ReadByte	; first digit
+	sta	Temp+3	; if this is the low digit
+	sta	Temp+4	; but it may be the high digit
+	ldb	Temp+5,#0	; first digit hb is zero
+	jsr	ReadByte	; second digit, or CR
+	cmp	#13
+	beq	14$	; nothing to process	
+	cmp	#32	; i said, nothing to process
+	beq	14$	
+	sta	Temp+3	; hold low digit for later
+	lda	Temp+4
+	sec
+	sbc	#48	; get digit down to size
+	sta	R15L
+	ldb	R15H,#10
+	ldy	#R15H
+	ldx	#R15L
+	jsr	BBMult	; multiply 1st digit by ten
+	mvb	R15L,Num2Copy	; this should be right now
+14$:	jsr	Rd2CR	; get that CR
+	lda	Temp+3
+	sec
+	sbc	#48	; get digit down to size
+	clc
+	adc	Num2Copy	; most sig digit added
+	sta	Num2Copy
+	rts
+
+;*********************************
+;* GetFoS - copy the next filename
+;* from FilesOnSide file into Filename
+;*********************************
+GetFonS:
+	mvw	CpyByt,R5
+	mvw	CpyTnS,R4
+	ldy	#0
+	sty	R15L	; set up first filename
+10$:	jsr	ReadByte
+	cpx	#0
+	bne	99$	; ouch! another EOF
+	cmp	#','	; comma is delimiter
+	beq	11$
+	ldy	R15L
+	sta	Filename,y	; copy a char
+	inc	R15L
+	bne	10$	; until done
+11$:	ldy	R15L	; set the EOL char
+	lda	#0
+	sta	Filename,y
+	jsr	Rd2CR	; finish this line
+	mvw	R5,CpyByt
+	mvw	R4,CpyTnS
+	dec	Num2Copy
+	ldx	#0	; return no errors
+99$:	rts
+
+;*********************************
+;* CreateF - start a copy by creating file
+;* on destination drive, and allocating its
+;* first block for data.  That's all!
+;* Rd2CR - ReadByte till a CR is read
+;*********************************
+
+CreateF:	lda	CDst	; open destination drive
+	jsr	SetDevice
+	jsr	OpenDisk
+	cpx	#0
+	bne	10$	; error!
+11$:	ldw	R6,#Filename
+	ldb	$886e,#$ff
+	jsr	FindFile	; look for file on destination
+	cpx	#0
+	bne	13$	; error!
+	ldx	#$ff	; file exists exit!
+10$:	rts
+13$:	ldw	R2,#3
+	ldw	R6,#DBlkP
+	jsr	BlkAlloc	; get first block on dest
+	cpx	#0
+	bne	10$
+	ldb	R10L,#0
+	jsr	GetFreeDirBlk	; find dest dir entry
+	cpx	#0
+	bne	10$
+	mvw	R1,DDirTnS
+	sty	DFilPtr
+	ldb	DFilPtr+1,#$80	; find free dest dir space
+	ldw	R0,#SDirBlk
+	mvw	DFilPtr,R1
+	ldw	R2,#$1e
+	jsr	MoveData	; copy dir entry src->dst
+	ldw	R0,#SDirBlk
+	mvw	DFilPtr,R1
+	ldy	#1
+	lda	(R0),y
+	sta	SNxtTS	; save first readable block
+	lda	DBlkP
+	sta	(R1),y	; point to 1st writable blk
+	sta	DNxtTS	; save first writable blk
+	iny
+	lda	(R0),y
+	sta	SNxtTS+1
+	lda	DBlkP+1	; copy first free block
+	sta	(R1),y
+	sta	DNxtTS+1
+	mvw	DDirTnS,R1
+	ldw	R4,#$8000
+	jsr	PutBlock	; now save dest dir block	
+	cpx	#0
+	bne	12$
+	jsr	PutDirHead	; resave the BAM
+	cpx	#0
+	bne	12$
+	mvb	DNxtTS,CopCont
+	cpx	#0
+12$:	rts
+
+Rd2CR:	jsr	ReadByte
+	cpx	#0
+	bne	99$	; ouch! EOF!
+	cmp	#13
+	bne	Rd2CR	; keep looking for CR
+99$:	rts
+
+;*********************************
+;* CopyFile - copies a block by taking T&S
+;* info from previous CopyFile or StartThis
+;* and doing a Copy/Paste on the new block.
+;*********************************
+
+CopyFile:	
+; ** copies a single block src->dst and sets up for next block
+	lda	CSrc
+	jsr	SetDevice	; set up source drive
+	jsr	OpenDisk
+	cpx	#0
+	bne	99$
+	ldw	R4,#CopyBuf
+10$:	jsr	getBLK
+	bne	99$
+	mvw	R4,LastBlk	; save where I am in buf
+	cwi	R4,CopyEnd	; get as many blocks...
+	bgt	11$
+	cbi	SNxtTS,#0	; this is last block!
+	bne	10$
+11$:	lda	CDst
+	jsr	SetDevice
+	jsr	OpenDisk
+	cpx	#0
+	bne	99$
+	ldw	DBlkPtr,#CopyBuf	; start from start
+12$:	jsr	putBLK
+	bne	99$
+	cbi	DNxtTS,#0	; this is last block!
+	beq	13$
+	cpw	DBlkPtr,LastBlk	; get as many blocks...
+	blt	12$
+13$:	jsr	PutDirHead
+	mvb	SNxtTS,CopCont
+	cpx	#0
+99$:	rts
+
+;*********************************
+;* getBLK - get one block, ready next
+;* putBLK - put one block, ready next
+;* MakeFreB - alloc next block
+;*********************************
+
+getBLK:	mvw	SNxtTS,R1
+	jsr	GetBlock	; get a source block
+	cpx	#0
+	bne	11$
+	ldy	#0
+	lda	(R4),y
+	sta	SNxtTS
+	iny
+	lda	(R4),y
+	sta	SNxtTS+1
+	inc	R4H
+	cpx	#0
+11$:	rts
+
+MakeFreB:	ldw	R2,#3
+	ldw	R6,#DBlkP
+	jsr	BlkAlloc	; get next TnS on dest
+	cpx	#0
+	bne	11$
+	mvw	DBlkPtr,R4
+	ldy	#0
+	lda	DBlkP
+	sta	(R4),y	; make new TnS link
+	iny
+	lda	DBlkP+1
+	sta	(R4),y
+	cpx	#0
+11$:	rts
+
+putBLK:	mvw	DBlkPtr,R4
+	ldy	#0
+	lda	(R4),y	; this is last block!
+	beq	98$
+	jsr	MakeFreB	; set buf block for next
+	bne	99$
+98$:	mvw	DBlkPtr,R4
+	mvw	DNxtTS,R1
+	jsr	PutBlock	; write next block on dest
+	cpx	#0
+	bne	99$
+	inc	DBlkPtr+1
+	mvw	DBlkP,DNxtTS	; save next writable block
+	cpx	#0
+99$:	rts
+
+;*********************************
+;* CpyFname - copy a filename into a
+;* new place
+;*********************************
+CpyFname:
+; *** R0 should point to the filename to copy, which ends in $A0
+	ldw	R1,#Filename
+	ldy	#0
+12$:	lda	(R0),y
+	cmp	#$a0	; copy next filename to buf
+	beq	13$
+	sta	(R1),y
+	iny
+	bra	12$
+13$:	lda	#0	; 0 is new delimeter
+	sta	(R1),y	; R1 is the destination
+	rts
+
+;*********************************
+;* PickDrive - reads in all disks names and
+;* allows the user to select destination drive
+;* for CopyIt.
+;*********************************
+
+PickDrive:	ldw	A0,#COLOR_MATRIX + 170
+	ldy	#19
+10$:	lda	#( 11 * 16 ) + 15
+	sta	(A0),y
+	ylp	10$	; fix first line
+	avw	#40,A0
+	ldx	#14
+11$:	ldy	#20	; fix colors
+12$:	lda	#( 11 * 16 ) + 15
+	sta	(A0),y
+	ylp	12$	; fix colors
+	avw	#40,A0
+	dex
+	bne	11$
+	avw	#1,A0
+	ldy	#19
+13$:	lda	#( 11 * 16 ) + 15
+	sta	(A0),y
+	ylp	13$	; fix last line
+	ldw	A2L,#18
+	mvb	curDrive,DrvInfo+3
+	ldw	A1,#AName	; put A drives name up
+	lda	#8
+	jsr	DriveRtn	
+	ldw	A1,#BName	; put B drives name up
+	lda	#9
+	jsr	DriveRtn	
+	ldw	A1,#CName	; put C drives name up
+	lda	#10
+	jsr	DriveRtn	
+	lda	DrvInfo+3
+	jsr	SetDevice	; go back to LS drive
+	jsr	OpenDisk
+	ldw	R0,#CopyBox
+	jsr	DoDlgBox	; ask for destination disk
+	cbi	sysDBData,#2	; was cancel hit?
+	rts	
+
+
+
+
+;*********************************
+;* RtnA, RtnB, RtnC - click handlers for ABC
+;* DriveRtn - finds a disks name and copies
+;* it into the PickDrive dialog box.
+;*********************************
+
+RtnA:	ldb	sysDBData,#8	; A drive selected
+	jmp	RstrFrmDialogue
+RtnB:	ldb	sysDBData,#9	; B drive selected
+	jmp	RstrFrmDialogue
+RtnC:	ldb	sysDBData,#10	; C drive selected
+	jmp	RstrFrmDialogue
+
+DriveRtn:	jsr	SetDevice
+	jsr	OpenDisk	; set new disk to read
+	ldy	curDrive
+	txa
+	sta	DrvInfo-8,y	; save drive status
+	cpx	#0
+	bne	10$	; error in drive?
+	ldw	A2L,#18
+	jsr	MoveDrNm	; copy its name to slot
+99$:	rts
+10$:	ldw	A0,#NOtxt0
+	ldx	#A0	; copy "no device" message
+	ldy	#A1
+	jmp	CopyString
+
+;*********************************
+;* Here are the variables from the start of
+;* free ram.
+;*********************************
+.ramsect
+;General Disk/Screen Info
+DiskNm:	.block	20	; current disks name
+LSDrive:	.block	21	; loadstar drive and disk name
+DADrive:	.block	21	; boot up drive and disk name
+DAText:	.block	148	; filenames for desk accessories
+Temp:	.block	30	; temporary space for various uses
+Temp2:	.block	28	; temporary space for various uses
+Colors:	.block	10	; space to save screen color defaults
+ClickF:	.block	1	; flag for mouse press, release
+RegSave:	.block	20*2
+ColorSave:	.block	1001	; background color saving space
+BackB:	.block	2	; window size info for restoring
+BackR:	.block	2	;   RHS window
+BackL:	.block	2
+LsavT:	.block	2	; window size info for little box
+Lnum:	.block	2
+Ldex:	.block	60	; index into files under a feature
+Pdex:	.block	40	; index into main features
+PData:	.block	5000	; the "features" file-- complete
+
+;* ReadIt Variables
+Byte:	.block	2	; position pointer in a disk sector
+TnS:	.block	2	; current track and sector info
+BlkBuf:	.block	300	; holds current block of file data
+XSAVE:	.block	1	; temporary save of read error .x
+RTop:	.block	6	; T&S info for top of document
+RTabPtr:	.block	2	; current page pointer in reading
+CopyBuf:	.block	744	; DoCopyIt buffer, falls through...
+RList:	.block	1000	; list of T&Ss for read file pages
+CopyEnd:	.block	256
+TSuse:	.block	2	; this pages top T&S information
+TSchk:	.block	2	; this pages T&S to compare
+TSnxt:	.block	2	; next pages tentative T&S info
+AString:	.block	100	; read in ascii string to disply
+BString:			; translated line of text, ready 2 go
+AName:	.block	20	; name of disk in drive A (DoCopyIt)
+BName:	.block	20	; name of disk in drive B (DoCopyIt)
+CName:	.block	20	; name of disk in drive C (DoCopyIt)
+DrvInfo:	.block	20	; temp drive status info (DoCopyIt)
+Filename:	.block	20	; current filename being DoCopyIted
+LineX:	.block	2	; current char x position in window
+LineY:	.block	1	; current char y position in window
+SzTmp:	.block	1	; size of file, returned by DoSetup
+PrtDrv:	.block	1	; print driver flag
+FBlkBuf:			; FilesOnSide buffer for DoCopyIt
+PrintBuf:	.block	300	; buffer the print driver asks for
+SDirBlk:	.block	340	; rest of PrintBuf & DoCopyIt src blk
+PrtDrvBuf:	.block	1599	; printer driver buffer
+
+
+;DoCopyIt resident variables (some above)
+Num2Copy:	.block	1	; number of files remaining to copy
+CSrc:	.block	1	; current copy source drive
+CDst:	.block	1	; current copy dest. drive
+SFilPtr:	.block	2	; pointer to source file in dir block
+SNxtTS:	.block	2	; T&S to read next from file
+DBlkP:	.block	6	; alloc buffer for new dest block
+DBlkPtr:	.block	4	; pointer to next buffer point
+DFilPtr:	.block	2		; pointer to dest filename space
+DDirTnS:	.block	2	; track and sector of dest dir block
+DNxtTS:	.block	2	; next T&S to write to dest file
+CopCont:	.block	1	; flag to continue copy non-0=yes
+LastBlk:	.block	2
+CpyByt:	.block	2
+CpyTnS:	.block	2
+
+TheEnd:	.block	1	; for mem use curiousity
+
+</pre></body></html>

@@ -1,0 +1,14 @@
+geoLoadStar Presenter (C)1997-2019 Bo Zimmerman
+Please read the LICENSE file for license information
+Please read the NOTICE file for credits information
+Home Page: http://www.zimmers.net/geos/
+
+geoLoadStar Presenter is a browser/reader application for the LoadStar disk magazine published between 1984 and 2007 that runs natively under the GEOS operating system.  It requires a valid issue of LoadStar to use.
+
+Instructions for using geoLoadStar Presenter can be read online at https://github.com/bozimmerman/geoLoadStar/tree/master/src-html/LS_PRESENT2.DOC.html . The instructions are also in geoWrite format in the src-geowrite directory.
+
+Building:
+geoLoadStar presenter was built using geoProgrammer for Wheels 64.In addition to the provided source, you'll require GEOSequates  from the geoModules project:
+https://github.com/bozimmerman/geoModules
+
+
